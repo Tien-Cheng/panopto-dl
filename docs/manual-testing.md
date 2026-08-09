@@ -16,7 +16,7 @@ Before testing, install the candidate wheel through `uv` for the same Unix
 account that owns the dedicated browser profile:
 
 ```console
-uv tool install --force dist/panopto_dl-0.1.0-py3-none-any.whl
+uv tool install --force dist/panopto_dl_cli-0.1.0-py3-none-any.whl
 panopto-dl --version
 ffmpeg -version
 ffprobe -version

@@ -54,18 +54,28 @@ panopto-dl --profile nus doctor
 
 ## Install
 
-Install a downloaded tagged wheel as an isolated CLI tool:
+Install the published package as an isolated CLI tool:
 
 ```console
-uv tool install /path/to/panopto_dl-0.1.0-py3-none-any.whl
+uv tool install panopto-dl-cli
 uv tool ensurepath
 # Open a new shell if this is the first tool installed with uv.
 panopto-dl --version
 ```
 
-Every `v*` tag builds and attaches the wheel and source distribution to its
-GitHub release. If the project is later published to a Python package index,
-the equivalent index install is `uv tool install panopto-dl==0.1.0`.
+The PyPI distribution is named `panopto-dl-cli` because `panopto-dl` was already
+registered by an unrelated project. The command installed by this package is
+still `panopto-dl`.
+
+Every `v*` tag publishes the wheel and source distribution to PyPI and attaches
+the same artifacts to its GitHub release. To install an exact version, run
+`uv tool install panopto-dl-cli==0.1.0`.
+
+You can also install a downloaded tagged wheel directly:
+
+```console
+uv tool install /path/to/panopto_dl_cli-0.1.0-py3-none-any.whl
+```
 
 Until a wheel is published, install from a repository checkout:
 

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "panopto-dl"
+name = "panopto-dl-cli"
 version = "0.1.0"
 description = "Policy-controlled Panopto discovery and downloading for humans and agents"
 readme = "README.md"
@@ -27,6 +27,12 @@ dependencies = [
   "typer>=0.16,<1",
   "yt-dlp>=2026.7.4,<2027",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Tien-Cheng/panopto-dl"
+Documentation = "https://github.com/Tien-Cheng/panopto-dl#readme"
+Issues = "https://github.com/Tien-Cheng/panopto-dl/issues"
+Source = "https://github.com/Tien-Cheng/panopto-dl"
 
 [project.scripts]
 panopto-dl = "panopto_dl.cli:main"
