@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "panopto-dl"
+version = "0.1.0"
+description = "Policy-controlled Panopto discovery and downloading for humans and agents"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "panopto-dl contributors" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Video",
+]
+dependencies = [
+  "filelock>=3.18,<4",
+  "platformdirs>=4.3,<5",
+  "playwright>=1.55,<2",
+  "pydantic>=2.11,<3",
+  "rich>=13.9,<15",
+  "tomlkit>=0.13,<1",
+  "typer>=0.16,<1",
+  "yt-dlp>=2026.7.4,<2027",
+]
+
+[project.scripts]
+panopto-dl = "panopto_dl.cli:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.15,<2",
+  "pytest>=8.3,<10",
+  "pytest-cov>=6,<8",
+  "ruff>=0.11,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/panopto_dl"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+  "integration: opt-in network tests against public Panopto instances",
+  "private: manual tests that require a local authenticated profile",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["panopto_dl"]
+warn_unused_ignores = true

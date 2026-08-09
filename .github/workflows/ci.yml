@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Install project
+        run: uv sync --frozen --all-groups --python 3.12
+      - name: Lint
+        run: uv run --frozen ruff check .
+      - name: Type-check
+        run: uv run --frozen mypy src/panopto_dl
+      - name: Run unit tests
+        run: uv run --frozen pytest -m "not integration and not private"
+
+  alma-linux:
+    name: Unit tests (AlmaLinux 9)
+    runs-on: ubuntu-latest
+    container: almalinux:9
+    steps:
+      - name: Install container prerequisites
+        run: dnf install -y findutils git gzip tar && dnf clean all
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Install project
+        run: uv sync --frozen --all-groups --python 3.12
+      - name: Lint
+        run: uv run --frozen ruff check .
+      - name: Type-check
+        run: uv run --frozen mypy src/panopto_dl
+      - name: Run unit tests
+        run: uv run --frozen pytest -m "not integration and not private"
+
+  build:
+    name: Build wheel and source distribution
+    runs-on: ubuntu-latest
+    needs: [unit, alma-linux]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Build distributions
+        run: uv build --python 3.12
+      - name: Smoke-test built wheel
+        shell: bash
+        run: |
+          uv venv --python 3.12 .build-venv
+          uv pip install --python .build-venv/bin/python dist/*.whl
+          .build-venv/bin/panopto-dl \
+            --json --quiet --schema-version 1 --version > version.json
+          .build-venv/bin/python -c \
+            'import json; p=json.load(open("version.json")); assert p["status"] == "success"; assert p["result"]["version"]'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panopto-dl-distributions
+          path: dist/*
+          if-no-files-found: error
