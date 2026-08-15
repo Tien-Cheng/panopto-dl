@@ -120,6 +120,15 @@ def test_operation_builder_exposes_plan_apply_but_not_source_mutation() -> None:
         parser.parse_args(["source-add", "dangerous"])
 
 
+def test_helper_requires_an_explicit_cli_compatible_profile() -> None:
+    parser = agent.build_parser()
+
+    with pytest.raises(agent.AdapterError):
+        parser.parse_args(["status"])
+    with pytest.raises(agent.AdapterError):
+        parser.parse_args(["--profile", "university.example", "status"])
+
+
 def test_discover_sessions_operation_parses_through_real_cli(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -132,12 +141,20 @@ def test_discover_sessions_operation_parses_through_real_cli(
 
     monkeypatch.setattr(cli, "_service", lambda ctx, output: DiscoveryService())
     parsed = agent.build_parser().parse_args(
-        ["discover-sessions", "--source", "cs1010s", "--source", "ma2001"]
+        [
+            "--profile",
+            "university",
+            "discover-sessions",
+            "--source",
+            "cs1010s",
+            "--source",
+            "ma2001",
+        ]
     )
     operation = agent.operation_from_args(parsed)
     invocation = [
         "--profile",
-        "nus",
+        "university",
         "--json",
         "--quiet",
         "--schema-version",
@@ -168,12 +185,12 @@ def test_one_off_plan_operation_aliases_parse_through_real_cli(
         "?id=00000000-0000-0000-0000-000000000000"
     )
     parsed = agent.build_parser().parse_args(
-        ["plan", "--target", target, "--media-profile", "lecture"]
+        ["--profile", "university", "plan", "--target", target, "--media-profile", "lecture"]
     )
     operation = agent.operation_from_args(parsed)
     invocation = [
         "--profile",
-        "nus",
+        "university",
         "--json",
         "--quiet",
         "--schema-version",
@@ -385,3 +402,39 @@ def test_cron_configuration_writes_owner_only_profile(
     assert profile_path.read_text(encoding="utf-8") == "my_nus\n"
     assert profile_path.stat().st_mode & 0o777 == 0o600
     assert "my_nus" in capsys.readouterr().out
+
+
+def test_cron_requires_profile_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "panopto-sync.py"
+    monkeypatch.setattr(cron, "__file__", str(script))
+
+    assert cron.main([]) == 2
+    output = capsys.readouterr().out
+    assert "[CRON_CONFIGURATION]" in output
+    assert "profile=unknown" in output
+    assert "nus" not in output.lower()
+    assert "--configure-profile PROFILE" in output
+
+
+@pytest.mark.parametrize("unsafe_kind", ["permissive", "symlink"])
+def test_cron_rejects_unsafe_profile_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    unsafe_kind: str,
+) -> None:
+    script = tmp_path / "panopto-sync.py"
+    profile_path = tmp_path / "panopto-sync.profile"
+    if unsafe_kind == "permissive":
+        profile_path.write_text("university\n", encoding="utf-8")
+        profile_path.chmod(0o644)
+    else:
+        target = tmp_path / "profile-target"
+        target.write_text("university\n", encoding="utf-8")
+        profile_path.symlink_to(target)
+    monkeypatch.setattr(cron, "__file__", str(script))
+
+    assert cron.main([]) == 2
+    assert "[CRON_CONFIGURATION]" in capsys.readouterr().out

@@ -33,6 +33,24 @@ PROFILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 GIB = 1024**3
 
 
+@dataclass(frozen=True, slots=True)
+class ProfilePreset:
+    """Defaults for a known Panopto deployment, applied only when requested."""
+
+    site_url: str
+    timezone: str
+    browser_channel: str | None = None
+
+
+PROFILE_PRESETS: dict[str, ProfilePreset] = {
+    "nus": ProfilePreset(
+        site_url=NUS_SITE_URL,
+        timezone="Asia/Singapore",
+        browser_channel="chrome",
+    )
+}
+
+
 class ConfigError(ValueError):
     """The configuration is missing, malformed, or unsafe."""
 
@@ -353,12 +371,23 @@ class ConfigManager:
         config = self.load()
         selected = name or config.default_profile
         if selected is None:
-            raise ProfileNotFoundError("no profile selected and no default profile is configured")
+            if not config.profiles:
+                raise ProfileNotFoundError(
+                    "No profile is configured. Create one with 'panopto-dl profile init NAME "
+                    "--site-url URL --output-root PATH', or add '--preset nus' for the NUS preset."
+                )
+            raise ProfileNotFoundError(
+                "No profile was selected and no default profile is configured; use --profile NAME."
+            )
         validate_profile_name(selected)
         try:
             return config.profiles[selected]
         except KeyError as exc:
-            raise ProfileNotFoundError(f"profile {selected!r} is not configured") from exc
+            raise ProfileNotFoundError(
+                f"Profile {selected!r} is not configured. Create it with 'panopto-dl profile "
+                f"init {selected} --site-url URL --output-root PATH', or choose a configured "
+                "profile with 'panopto-dl profile list'."
+            ) from exc
 
     def init_profile(
         self,
@@ -378,14 +407,18 @@ class ConfigManager:
         config = self.load()
         if name in config.profiles:
             raise ProfileAlreadyExistsError(f"profile {name!r} already exists")
-        if preset not in {None, "nus"}:
-            raise ConfigError(f"unknown profile preset: {preset}")
-        resolved_site = site_url or (NUS_SITE_URL if preset == "nus" else None)
+        selected_preset = PROFILE_PRESETS.get(preset) if preset is not None else None
+        if preset is not None and selected_preset is None:
+            available = ", ".join(sorted(PROFILE_PRESETS))
+            raise ConfigError(
+                f"unknown profile preset: {preset}; available presets: {available}"
+            )
+        resolved_site = site_url or (selected_preset.site_url if selected_preset else None)
         if resolved_site is None:
             raise ConfigError("site_url is required when no preset supplies one")
-        resolved_timezone = timezone or ("Asia/Singapore" if preset == "nus" else "UTC")
-        if preset == "nus" and browser_channel is None and browser_executable is None:
-            browser_channel = "chrome"
+        resolved_timezone = timezone or (selected_preset.timezone if selected_preset else "UTC")
+        if selected_preset and browser_channel is None and browser_executable is None:
+            browser_channel = selected_preset.browser_channel
         profile = ProfileConfig(
             name=name,
             site_url=resolved_site,
@@ -402,9 +435,7 @@ class ConfigManager:
             profile.output_root.chmod(0o700)
         profiles = dict(config.profiles)
         profiles[name] = profile
-        should_make_default = (
-            make_default if make_default is not None else len(config.profiles) == 0
-        )
+        should_make_default = not config.profiles or make_default is True
         default_profile = name if should_make_default else config.default_profile
         updated = AppConfig(
             schema_version=CONFIG_SCHEMA_VERSION,
@@ -471,6 +502,7 @@ __all__ = [
     "APP_NAME",
     "CONFIG_SCHEMA_VERSION",
     "NUS_SITE_URL",
+    "PROFILE_PRESETS",
     "AppConfig",
     "AppPaths",
     "ConfigError",
@@ -480,6 +512,7 @@ __all__ = [
     "ProfileLock",
     "ProfileNotFoundError",
     "ProfilePaths",
+    "ProfilePreset",
     "ResourceLimits",
     "iter_profile_names",
     "validate_profile_name",

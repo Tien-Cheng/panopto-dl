@@ -16,7 +16,13 @@ from pydantic import ValidationError
 from typer import _click as click
 
 from . import __version__
-from .config import ConfigError, ConfigManager, ProfileConfig, validate_profile_name
+from .config import (
+    PROFILE_PRESETS,
+    ConfigError,
+    ConfigManager,
+    ProfileConfig,
+    validate_profile_name,
+)
 from .database import DatabaseError
 from .domain import MediaPolicy
 from .errors import AppError, ExitCode, LocalIOError, PolicyError, UsageError
@@ -41,7 +47,7 @@ app.add_typer(source_app, name="source")
 
 @dataclass(frozen=True, slots=True)
 class GlobalOptions:
-    profile: str
+    profile: str | None
     json_mode: bool
     quiet: bool
     schema_version: str
@@ -50,7 +56,10 @@ class GlobalOptions:
 @app.callback(invoke_without_command=True)
 def root(
     ctx: typer.Context,
-    profile: Annotated[str, typer.Option("--profile", help="Named site profile.")] = "nus",
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", help="Named site profile; defaults to configured profile."),
+    ] = None,
     json_mode: Annotated[
         bool,
         typer.Option("--json", help="Emit one versioned JSON document."),
@@ -69,7 +78,8 @@ def root(
     ] = False,
 ) -> None:
     try:
-        profile = validate_profile_name(profile)
+        if profile is not None:
+            profile = validate_profile_name(profile)
     except ConfigError as error:
         raise typer.BadParameter("Invalid profile name", param_hint="--profile") from error
     options = GlobalOptions(profile, json_mode, quiet or json_mode, schema_version)
@@ -85,14 +95,14 @@ def root(
 def _options(ctx: typer.Context) -> GlobalOptions:
     value = ctx.find_root().obj
     if not isinstance(value, GlobalOptions):
-        return GlobalOptions("nus", False, False, "1")
+        return GlobalOptions(None, False, False, "1")
     return value
 
 
 def _output(options: GlobalOptions, command: str) -> OutputContext:
     return OutputContext(
         command=command,
-        profile=options.profile,
+        profile=options.profile or "",
         json_mode=options.json_mode,
         quiet=options.quiet,
         schema_version=options.schema_version,
@@ -149,7 +159,10 @@ def _run(
 
 def _service(ctx: typer.Context, output: OutputContext) -> AppService:
     options = _options(ctx)
-    return AppService.open(options.profile, ConfigManager(), output.progress)
+    manager = ConfigManager()
+    profile = manager.get_profile(options.profile)
+    output.profile = profile.name
+    return AppService.open(profile.name, manager, output.progress)
 
 
 @profile_app.command("init")
@@ -157,7 +170,13 @@ def profile_init(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="New profile name.")],
     output_root: Annotated[Path, typer.Option("--output-root", help="Media output root.")],
-    preset: Annotated[str | None, typer.Option("--preset", help="Built-in site preset.")] = None,
+    preset: Annotated[
+        str | None,
+        typer.Option(
+            "--preset",
+            help=f"Built-in site preset ({', '.join(sorted(PROFILE_PRESETS))}).",
+        ),
+    ] = None,
     site_url: Annotated[
         str | None, typer.Option("--site-url", help="Panopto HTTPS origin.")
     ] = None,
@@ -174,10 +193,13 @@ def profile_init(
     ] = None,
     make_default: Annotated[
         bool | None,
-        typer.Option("--default/--no-default", help="Make this the default profile."),
+        typer.Option(
+            "--default/--no-default",
+            help="Make this the default profile; the first profile is always the default.",
+        ),
     ] = None,
 ) -> None:
-    def operation(_: OutputContext) -> dict[str, object]:
+    def operation(output: OutputContext) -> dict[str, object]:
         profile = ConfigManager().init_profile(
             name,
             output_root=output_root,
@@ -188,6 +210,7 @@ def profile_init(
             browser_executable=browser_executable,
             make_default=make_default,
         )
+        output.profile = profile.name
         return _public_profile(profile)
 
     _run(ctx, "profile init", operation)
@@ -207,7 +230,12 @@ def profile_show(
     ctx: typer.Context,
     name: Annotated[str | None, typer.Argument(help="Profile name.")] = None,
 ) -> None:
-    _run(ctx, "profile show", lambda _: _public_profile(ConfigManager().get_profile(name)))
+    def operation(output: OutputContext) -> dict[str, object]:
+        profile = ConfigManager().get_profile(name or _options(ctx).profile)
+        output.profile = profile.name
+        return _public_profile(profile)
+
+    _run(ctx, "profile show", operation)
 
 
 def _public_profile(profile: ProfileConfig) -> dict[str, object]:
@@ -504,7 +532,7 @@ def main() -> None:
 
 
 def _machine_options_from_argv(arguments: list[str]) -> GlobalOptions:
-    profile = "nus"
+    profile = None
     for index, value in enumerate(arguments):
         if value == "--profile" and index + 1 < len(arguments):
             candidate = arguments[index + 1]

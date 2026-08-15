@@ -49,7 +49,7 @@ when creating the profile, for example `--browser-executable
 Confirm all local dependencies after profile setup:
 
 ```console
-panopto-dl --profile nus doctor
+panopto-dl --profile PROFILE doctor
 ```
 
 ## Install
@@ -94,32 +94,47 @@ The CLI stores configuration and state in platform-native application
 directories. Media is written only below each profile's configured output root.
 Do not copy profile state between people or accounts.
 
-## First-time NUS setup
+## First-time profile setup
 
-Create the profile and its output root:
+The CLI does not assume an institution or create a `nus` profile implicitly. Create a
+named profile before using commands that access Panopto. The first profile becomes
+the default even if `--no-default` is passed. `--profile` remains optional after
+you add more profiles; use it when you want to override the configured default.
+
+For any Panopto-hosted site, provide the site explicitly:
 
 ```console
-panopto-dl profile init nus \
+panopto-dl profile init university \
+  --site-url 'https://example.panopto.com' \
+  --timezone 'Area/City' \
+  --output-root "$HOME/Lectures"
+```
+
+NUS is available as an explicit preset rather than a default profile:
+
+```console
+panopto-dl profile init university \
   --preset nus \
   --output-root "$HOME/Lectures"
 ```
 
-The preset selects `https://mediaweb.ap.panopto.com`, `Asia/Singapore`, and the
-system Chrome channel. Use `--browser-executable PATH` at profile creation when
-the browser is installed somewhere unusual.
+The `nus` preset selects `https://mediaweb.ap.panopto.com`, `Asia/Singapore`, and
+the system Chrome channel. The profile name remains the user's choice. Additional
+institution presets can be added without changing profile-selection behavior. Use
+`--browser-executable PATH` when the browser is installed somewhere unusual.
 
 Open a desktop session on macOS, or a KDE/RDP session on the Linux VM, then run:
 
 ```console
-panopto-dl --profile nus auth login
+panopto-dl auth login
 ```
 
-Complete NUS SSO and MFA in the opened browser. Login succeeds only after the
-tool verifies an authenticated Panopto folder request. Future checks are
+Complete the site's SSO and MFA in the opened browser. Login succeeds only after
+the tool verifies an authenticated Panopto folder request. Future checks are
 headless:
 
 ```console
-panopto-dl --profile nus auth status
+panopto-dl auth status
 ```
 
 If that command reports `AUTH_REQUIRED`, repeat the headed login yourself.
@@ -132,10 +147,10 @@ folder. Inputs may come from Canvas CLI, but Canvas authentication and crawling
 remain a separate concern.
 
 ```console
-panopto-dl --profile nus discover folders
-panopto-dl --profile nus discover folders --url 'STABLE_FOLDER_URL'
-panopto-dl --profile nus discover sessions 'FOLDER_ID_OR_URL'
-panopto-dl --profile nus inspect 'VIEWER_URL_OR_SESSION_UUID'
+panopto-dl --profile PROFILE discover folders
+panopto-dl --profile PROFILE discover folders --url 'STABLE_FOLDER_URL'
+panopto-dl --profile PROFILE discover sessions 'FOLDER_ID_OR_URL'
+panopto-dl --profile PROFILE inspect 'VIEWER_URL_OR_SESSION_UUID'
 ```
 
 Viewer, Embed, and folder URLs must belong to the configured Panopto site. The
@@ -148,14 +163,14 @@ to `auto_sync=false`, and their `not_before` timestamp is the registration time.
 That prevents a newly registered course from downloading its whole history.
 
 ```console
-panopto-dl --profile nus source add 'FOLDER_ID_OR_URL' --alias cs1010s
-panopto-dl --profile nus source list
+panopto-dl --profile PROFILE source add 'FOLDER_ID_OR_URL' --alias cs1010s
+panopto-dl --profile PROFILE source list
 ```
 
 Grant unattended sync permission only as an explicit choice:
 
 ```console
-panopto-dl --profile nus source add 'FOLDER_ID_OR_URL' \
+panopto-dl --profile PROFILE source add 'FOLDER_ID_OR_URL' \
   --alias cs1010s \
   --auto-sync
 ```
@@ -163,7 +178,7 @@ panopto-dl --profile nus source add 'FOLDER_ID_OR_URL' \
 To select an earlier safe boundary at registration:
 
 ```console
-panopto-dl --profile nus source add 'FOLDER_ID_OR_URL' \
+panopto-dl --profile PROFILE source add 'FOLDER_ID_OR_URL' \
   --alias cs1010s \
   --not-before '2026-08-01T00:00:00+08:00'
 ```
@@ -180,21 +195,21 @@ fingerprint, and content hash in SQLite. Plans are immutable and expire after
 
 ```console
 # New recordings after a source's not-before boundary
-panopto-dl --profile nus plan --source cs1010s
+panopto-dl --profile PROFILE plan --source cs1010s
 
 # Explicit historical selections
-panopto-dl --profile nus plan --source cs1010s --backfill all
-panopto-dl --profile nus plan --source cs1010s --since '2026-08-01T00:00:00+08:00'
-panopto-dl --profile nus plan --source cs1010s --last 3
+panopto-dl --profile PROFILE plan --source cs1010s --backfill all
+panopto-dl --profile PROFILE plan --source cs1010s --since '2026-08-01T00:00:00+08:00'
+panopto-dl --profile PROFILE plan --source cs1010s --last 3
 
 # One recording discovered through Canvas or Panopto
-panopto-dl --profile nus plan --target 'VIEWER_URL_OR_SESSION_UUID'
+panopto-dl --profile PROFILE plan --target 'VIEWER_URL_OR_SESSION_UUID'
 ```
 
 Review the plan, then apply that exact plan ID:
 
 ```console
-panopto-dl --profile nus apply PLAN_ID
+panopto-dl --profile PROFILE apply PLAN_ID
 ```
 
 `apply` rejects expired plans and plans whose profile configuration changed
@@ -204,7 +219,7 @@ For a person at a terminal, `download` is a convenience command. It creates and
 displays a one-item plan, then prompts before applying it:
 
 ```console
-panopto-dl --profile nus download 'VIEWER_URL_OR_SESSION_UUID'
+panopto-dl --profile PROFILE download 'VIEWER_URL_OR_SESSION_UUID'
 ```
 
 Machine callers cannot use `download`. They must use `plan`, show the plan to
@@ -218,8 +233,8 @@ session, `download --refresh` creates one instead of replacing the stored media.
 registered with automatic sync permission:
 
 ```console
-panopto-dl --profile nus sync
-panopto-dl --profile nus status
+panopto-dl --profile PROFILE sync
+panopto-dl --profile PROFILE status
 ```
 
 Completed session IDs are idempotent and are not silently replaced. A remote
@@ -259,17 +274,19 @@ rename.
 Global machine flags must appear before the command:
 
 ```console
-panopto-dl --profile nus --json --quiet --schema-version 1 status
+panopto-dl --profile PROFILE --json --quiet --schema-version 1 status
 ```
 
-The process writes exactly one JSON object to stdout and nothing to stderr:
+The process writes exactly one JSON object to stdout and nothing to stderr. The
+`profile` field remains a string in schema `1.0`; it is empty only when no profile
+has been selected yet, such as a version response or a setup-required error:
 
 ```json
 {
   "schema_version": "1.0",
   "command": "status",
   "status": "success",
-  "profile": "nus",
+  "profile": "PROFILE",
   "request_id": "uuid",
   "result": {},
   "warnings": [],
@@ -329,7 +346,7 @@ install -m 0700 skills/panopto-dl/scripts/panopto_agent.py \
   "$HOME/.hermes/scripts/panopto_agent.py"
 install -m 0700 skills/panopto-dl/scripts/panopto_cron.py \
   "$HOME/.hermes/scripts/panopto-sync.py"
-python3 "$HOME/.hermes/scripts/panopto-sync.py" --configure-profile nus
+python3 "$HOME/.hermes/scripts/panopto-sync.py" --configure-profile PROFILE
 ```
 
 Configure Hermes cron to execute `panopto-sync.py` with `no_agent=true`. A

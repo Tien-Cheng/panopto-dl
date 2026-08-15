@@ -18,9 +18,8 @@ from urllib.parse import parse_qs, urlsplit
 
 SCHEMA_VERSION = "1.0"
 CLI_SCHEMA_VERSION = "1"
-DEFAULT_PROFILE = "nus"
 
-_PROFILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+_PROFILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _PLAN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{7,127}\Z")
 _ERROR_CODE_RE = re.compile(r"[A-Z][A-Z0-9_]{1,63}\Z")
@@ -179,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Constrained Hermes adapter for panopto-dl.",
         allow_abbrev=False,
     )
-    parser.add_argument("--profile", default=DEFAULT_PROFILE, type=_profile)
+    parser.add_argument("--profile", required=True, type=_profile)
     subparsers = parser.add_subparsers(
         dest="operation", required=True, parser_class=SafeArgumentParser
     )
@@ -551,7 +550,7 @@ def execute(profile: str, operation: Operation) -> Execution:
 
 def run(argv: Sequence[str] | None = None) -> Execution:
     arguments = list(argv) if argv is not None else sys.argv[1:]
-    profile = DEFAULT_PROFILE
+    profile = "unknown"
     try:
         parsed = build_parser().parse_args(arguments)
         profile = parsed.profile

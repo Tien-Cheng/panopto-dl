@@ -20,7 +20,9 @@ class CliResult:
     payload: dict[str, Any]
 
 
-def run_machine_cli(tmp_path: Path, *arguments: str) -> CliResult:
+def run_machine_cli(
+    tmp_path: Path, *arguments: str, expected_profile: str = ""
+) -> CliResult:
     """Run the real module entrypoint with no access to the user's app directories."""
 
     home = tmp_path / "home"
@@ -75,7 +77,7 @@ def run_machine_cli(tmp_path: Path, *arguments: str) -> CliResult:
         "error",
     }
     assert decoded["schema_version"] == "1.0"
-    assert decoded["profile"] == "nus"
+    assert decoded["profile"] == expected_profile
     uuid.UUID(decoded["request_id"])
     assert isinstance(decoded["result"], dict)
     assert isinstance(decoded["warnings"], list)
@@ -189,8 +191,92 @@ def test_invalid_profile_value_is_not_echoed_in_machine_output(tmp_path: Path) -
     )
 
     assert result.returncode == ExitCode.USAGE
-    assert result.payload["profile"] == "nus"
+    assert result.payload["profile"] == ""
     assert "profile-secret" not in json.dumps(result.payload)
+
+
+def test_unconfigured_command_requires_profile_setup(tmp_path: Path) -> None:
+    result = run_machine_cli(tmp_path, "status")
+
+    assert result.returncode == ExitCode.USAGE
+    assert result.payload["profile"] == ""
+    assert result.payload["error"] == {
+        "code": "CONFIG_ERROR",
+        "message": (
+            "No profile is configured. Create one with 'panopto-dl profile init NAME "
+            "--site-url URL --output-root PATH', or add '--preset nus' for the NUS preset."
+        ),
+        "retryable": False,
+        "details": {},
+    }
+
+
+def test_explicit_missing_profile_reports_setup_guidance(tmp_path: Path) -> None:
+    result = run_machine_cli(
+        tmp_path,
+        "--profile",
+        "university",
+        "status",
+        expected_profile="university",
+    )
+
+    assert result.returncode == ExitCode.USAGE
+    assert result.payload["error"]["code"] == "CONFIG_ERROR"
+    assert "profile init university" in result.payload["error"]["message"]
+
+
+def test_first_generic_profile_becomes_default_without_nus_name(tmp_path: Path) -> None:
+    output_root = tmp_path / "downloads"
+    created = run_machine_cli(
+        tmp_path,
+        "profile",
+        "init",
+        "university",
+        "--site-url",
+        "https://example.panopto.com",
+        "--output-root",
+        str(output_root),
+        expected_profile="university",
+    )
+    shown = run_machine_cli(
+        tmp_path,
+        "profile",
+        "show",
+        expected_profile="university",
+    )
+
+    assert created.returncode == ExitCode.SUCCESS
+    assert created.payload["result"]["name"] == "university"
+    assert shown.returncode == ExitCode.SUCCESS
+    assert shown.payload["result"]["name"] == "university"
+
+
+def test_profile_show_respects_global_profile_selection(tmp_path: Path) -> None:
+    for name in ("primary", "secondary"):
+        created = run_machine_cli(
+            tmp_path,
+            "profile",
+            "init",
+            name,
+            "--site-url",
+            "https://example.panopto.com",
+            "--output-root",
+            str(tmp_path / name),
+            expected_profile=name,
+        )
+        assert created.returncode == ExitCode.SUCCESS
+
+    shown = run_machine_cli(
+        tmp_path,
+        "--profile",
+        "secondary",
+        "profile",
+        "show",
+        expected_profile="secondary",
+    )
+
+    assert shown.returncode == ExitCode.SUCCESS
+    assert shown.payload["result"]["name"] == "secondary"
 
 
 def test_documented_exit_code_values_are_stable() -> None:

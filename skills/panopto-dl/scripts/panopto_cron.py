@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from panopto_agent import (
-    DEFAULT_PROFILE,
     AdapterError,
     Execution,
     Operation,
@@ -17,7 +18,7 @@ from panopto_agent import (
     execute,
 )
 
-_SAFE_PROFILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+_SAFE_PROFILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _SAFE_SOURCE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _SAFE_CODE_RE = re.compile(r"[A-Z][A-Z0-9_]{1,63}\Z")
 _PROFILE_FILE = "panopto-sync.profile"
@@ -25,9 +26,15 @@ _PROFILE_FILE = "panopto-sync.profile"
 
 def _configured_profile(script_path: Path) -> str:
     profile_path = script_path.with_name(_PROFILE_FILE)
-    if not profile_path.exists():
-        return DEFAULT_PROFILE
-    profile = profile_path.read_text(encoding="utf-8").strip()
+    if profile_path.is_symlink():
+        raise ValueError("profile configuration must not be a symlink")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(profile_path, flags)
+    with os.fdopen(descriptor, encoding="utf-8") as stream:
+        details = os.fstat(stream.fileno())
+        if not stat.S_ISREG(details.st_mode) or stat.S_IMODE(details.st_mode) & 0o077:
+            raise ValueError("profile configuration permissions are unsafe")
+        profile = stream.read().strip()
     if not _SAFE_PROFILE_RE.fullmatch(profile):
         raise ValueError("invalid profile configuration")
     return profile
@@ -37,8 +44,13 @@ def _write_profile(script_path: Path, profile: str) -> None:
     if not _SAFE_PROFILE_RE.fullmatch(profile):
         raise ValueError("invalid profile")
     profile_path = script_path.with_name(_PROFILE_FILE)
-    profile_path.write_text(profile + "\n", encoding="utf-8")
-    profile_path.chmod(0o600)
+    if profile_path.is_symlink():
+        raise ValueError("profile configuration must not be a symlink")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(profile_path, flags, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(profile + "\n")
 
 
 def _safe_count(result: Mapping[str, Any], key: str) -> int | None:
@@ -143,7 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (AdapterError, OSError, ValueError):
         print(
             "Panopto sync [CRON_CONFIGURATION] profile=unknown. "
-            "Action: write a valid profile name to panopto-sync.profile."
+            "Action: run panopto-sync.py --configure-profile PROFILE."
         )
         return 2
 

@@ -64,17 +64,18 @@ def session(session_id: str = "session-1") -> Session:
     )
 
 
-def test_nus_profile_round_trip_and_safe_paths(tmp_path: Path) -> None:
+def test_nus_preset_is_independent_of_profile_name(tmp_path: Path) -> None:
     paths = app_paths(tmp_path)
     manager = ConfigManager(paths)
     profile = manager.init_profile(
-        "nus",
+        "university",
         preset="nus",
         output_root=tmp_path / "lectures",
     )
 
     loaded = manager.get_profile()
     assert loaded == profile
+    assert loaded.name == "university"
     assert loaded.site_url == "https://mediaweb.ap.panopto.com"
     assert loaded.timezone == "Asia/Singapore"
     assert loaded.browser_channel == "chrome"
@@ -86,7 +87,38 @@ def test_nus_profile_round_trip_and_safe_paths(tmp_path: Path) -> None:
         loaded.resolve_output_path("..", "elsewhere")
 
     assert stat.S_IMODE(paths.config_file.stat().st_mode) == 0o600
-    assert stat.S_IMODE(paths.profile("nus").browser.stat().st_mode) == 0o700
+    assert stat.S_IMODE(paths.profile("university").browser.stat().st_mode) == 0o700
+
+
+def test_first_profile_is_default_even_when_no_default_is_requested(tmp_path: Path) -> None:
+    manager = ConfigManager(app_paths(tmp_path))
+
+    manager.init_profile(
+        "primary",
+        site_url="https://example.panopto.com",
+        output_root=tmp_path / "primary",
+        make_default=False,
+    )
+    manager.init_profile(
+        "secondary",
+        site_url="https://example.panopto.com",
+        output_root=tmp_path / "secondary",
+        make_default=False,
+    )
+
+    assert manager.load().default_profile == "primary"
+    assert manager.get_profile().name == "primary"
+
+
+def test_unknown_profile_preset_reports_available_presets(tmp_path: Path) -> None:
+    manager = ConfigManager(app_paths(tmp_path))
+
+    with pytest.raises(ConfigError, match=r"unknown profile preset.*nus"):
+        manager.init_profile(
+            "university",
+            preset="unknown",
+            output_root=tmp_path / "lectures",
+        )
 
 
 def test_profile_paths_repair_preexisting_permissive_directories(tmp_path: Path) -> None:
