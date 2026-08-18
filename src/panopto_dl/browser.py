@@ -283,10 +283,20 @@ class BrowserSession:
                 code="AUTH_CHECK_FAILED",
                 retryable=True,
             )
-        return any(
+        has_session_shape = any(
             key in body
             for key in ("Results", "Subfolders", "TotalResultCount", "TotalNumber", "MoreData")
         )
+        if not has_session_shape:
+            return False
+        try:
+            return bool(context.cookies([self.base_url]))
+        except Exception:
+            raise RemoteError(
+                "Panopto authentication could not be verified",
+                code="AUTH_CHECK_FAILED",
+                retryable=True,
+            ) from None
 
     @staticmethod
     def _context_closed(context: Any) -> bool:

@@ -293,25 +293,32 @@ def test_private_directory_rejects_links_and_has_owner_only_mode(tmp_path: Path)
 class _FakeResponse:
     status = 200
 
-    @staticmethod
-    def json() -> dict[str, Any]:
-        return {"d": {"Results": [], "Subfolders": []}}
+    def __init__(self, body: dict[str, Any] | None = None) -> None:
+        self._body = body if body is not None else {"d": {"Results": [], "Subfolders": []}}
+
+    def json(self) -> dict[str, Any]:
+        return self._body
 
 
 class _FakeRequest:
-    @staticmethod
-    def post(*_args: object, **_kwargs: object) -> _FakeResponse:
-        return _FakeResponse()
+    def __init__(self, response: _FakeResponse) -> None:
+        self._response = response
+
+    def post(self, *_args: object, **_kwargs: object) -> _FakeResponse:
+        return self._response
 
 
 class _FakeContext:
-    def __init__(self) -> None:
-        self.request = _FakeRequest()
+    def __init__(
+        self,
+        *,
+        response_body: dict[str, Any] | None = None,
+        cookies: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.request = _FakeRequest(_FakeResponse(response_body))
         self.pages: list[object] = []
-
-    @staticmethod
-    def cookies(_urls: list[str]) -> list[dict[str, Any]]:
-        return [
+        self.cookie_urls: list[str] | None = None
+        self._cookies = cookies if cookies is not None else [
             {
                 "domain": ".ap.panopto.com",
                 "name": ".ASPXAUTH",
@@ -322,6 +329,27 @@ class _FakeContext:
                 "expires": -1,
             }
         ]
+
+    def cookies(self, urls: list[str]) -> list[dict[str, Any]]:
+        self.cookie_urls = urls
+        return self._cookies
+
+
+def test_browser_status_rejects_results_without_session_cookies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    browser = BrowserSession(SITE, tmp_path / "browser", browser_channel=None)
+    context = _FakeContext(
+        response_body={"d": {"Results": [{"Id": SESSION_ID}], "TotalNumber": 1}},
+        cookies=[],
+    )
+    monkeypatch.setattr(browser, "_open_context", lambda *, headless: nullcontext(context))
+
+    status = browser.status()
+
+    assert status.authenticated is False
+    assert status.reason == "AUTH_REQUIRED"
+    assert context.cookie_urls == [SITE]
 
 
 def test_browser_status_and_cookie_export_are_secret_free(
