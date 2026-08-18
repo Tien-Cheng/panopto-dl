@@ -1,6 +1,6 @@
 # Bug report: panopto-dl auth probe returns false AUTHENTICATED (zero cookies)
 
-**Status:** FIXED — `_probe_authenticated()` now requires at least one cookie scoped to the Panopto base URL; regression coverage verifies that even non-empty results cannot authenticate a zero-cookie context.
+**Status:** FIXED — `_probe_authenticated()` now requires at least one httpOnly cookie scoped to the Panopto base URL; regression coverage rejects zero-cookie and analytics-only contexts while accepting a real httpOnly session cookie.
 
 **Repo:** `/home/hermes/projects/panopto-dl` (user's fork, branch `feat/agnostic-profile-setup` @ `8bd917f`)
 **File:** `src/panopto_dl/browser.py` — `_probe_authenticated()` (and `status()` which uses it)
@@ -35,13 +35,21 @@ NUS's Panopto returns **HTTP 200 with a well-formed body** (`{"d":{"Results":[],
 3. Inspect any real Viewer URL → AUTH_REQUIRED.
 4. Direct yt-dlp with the generated cookie file → "only available for registered users".
 
-## Suggested fix
+## Status
+FIXED (refined) — the probe now requires an httpOnly cookie, so `_ga`/`_gid` alone cannot authenticate the context.
 
-`_probe_authenticated` should require positive evidence of an authenticated session, not just a well-formed response. Options, in order of preference:
+## Refinement required (verified against the live NUS profile)
 
-1. **Require a non-empty session.** Treat the probe as authenticated only if the unwrapped body is non-empty in a meaningful way — e.g. `Results`/`Subfolders` contains at least one entry, **and** at least one Panopto session cookie (`ASP.NET_SessionId`, `.ASPXAUTH`, or a Panopto auth cookie) is present in `context.cookies([self.base_url])`.
-2. **Check cookies directly.** The most robust signal: `len(context.cookies([self.base_url])) > 0` (or presence of a specific auth cookie). A real logged-in Panopto session persists session cookies; an anonymous session has none. Since `cookies_file()` already depends on `context.cookies(...)` being non-empty, the probe should share that signal so `auth status` and `inspect` agree.
-3. If GetSessions is inherently anonymous-friendly on some instances, probe a different, auth-gated endpoint, or fetch a specific folder/session that only an authenticated user can see.
+The first-pass fix makes `_probe_authenticated` return `bool(context.cookies([self.base_url]))` — "at least one cookie." But **Google Analytics cookies defeat it.** The NUS profile currently holds only `_ga` and `_gid` (both on `.panopto.com`, both `httpOnly=False`), left over from the broken `auth login` attempt. Those are scoped to the Panopto domain and pass `cookies([base_url])`, so `auth status` still reports `AUTHENTICATED` with no real session.
+
+A genuine authenticated Panopto session sets an httpOnly session/auth cookie (typically `ASP.NET_SessionId` and/or `.ASPXAUTH`). The probe should require evidence of a real session cookie, not just *any* cookie.
+
+Recommended refinement (pick one, or combine):
+1. **Require at least one httpOnly cookie** in `context.cookies([self.base_url])`. GA/analytics cookies are never httpOnly; Panopto's real session cookie is. Simple and effective.
+2. **Filter out known analytics/third-party cookie names** (`_ga`, `_gid`, `_gat`, `_ga_*`, `__utm*`, `_pk_*`, etc.) before counting.
+3. Require a specific Panopto session-cookie name (`ASP.NET_SessionId` and/or `.ASPXAUTH`) to be present.
+
+Keep the regression tests: they already prove non-empty `Results` with zero cookies is not authenticated. Add a case proving **non-empty `Results` with only GA-analytics cookies is also NOT authenticated**, and that a real (httpOnly) session cookie does authenticate.
 
 ## Constraints
 

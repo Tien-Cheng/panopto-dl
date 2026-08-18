@@ -290,7 +290,8 @@ class BrowserSession:
         if not has_session_shape:
             return False
         try:
-            return bool(context.cookies([self.base_url]))
+            cookies = context.cookies([self.base_url])
+            return any(cookie.get("httpOnly") is True for cookie in cookies)
         except Exception:
             raise RemoteError(
                 "Panopto authentication could not be verified",

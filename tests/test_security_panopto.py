@@ -352,6 +352,61 @@ def test_browser_status_rejects_results_without_session_cookies(
     assert context.cookie_urls == [SITE]
 
 
+def test_browser_status_rejects_results_with_only_analytics_cookies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    browser = BrowserSession(SITE, tmp_path / "browser", browser_channel=None)
+    context = _FakeContext(
+        response_body={"d": {"Results": [{"Id": SESSION_ID}], "TotalNumber": 1}},
+        cookies=[
+            {
+                "domain": ".panopto.com",
+                "name": name,
+                "value": "analytics-value",
+                "path": "/",
+                "secure": False,
+                "httpOnly": False,
+                "expires": -1,
+            }
+            for name in ("_ga", "_gid")
+        ],
+    )
+    monkeypatch.setattr(browser, "_open_context", lambda *, headless: nullcontext(context))
+
+    status = browser.status()
+
+    assert status.authenticated is False
+    assert status.reason == "AUTH_REQUIRED"
+    assert context.cookie_urls == [SITE]
+
+
+def test_browser_status_accepts_results_with_http_only_session_cookie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    browser = BrowserSession(SITE, tmp_path / "browser", browser_channel=None)
+    context = _FakeContext(
+        response_body={"d": {"Results": [{"Id": SESSION_ID}], "TotalNumber": 1}},
+        cookies=[
+            {
+                "domain": ".ap.panopto.com",
+                "name": "ASP.NET_SessionId",
+                "value": "session-secret",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "expires": -1,
+            }
+        ],
+    )
+    monkeypatch.setattr(browser, "_open_context", lambda *, headless: nullcontext(context))
+
+    status = browser.status()
+
+    assert status.authenticated is True
+    assert status.reason == "AUTHENTICATED"
+    assert context.cookie_urls == [SITE]
+
+
 def test_browser_status_and_cookie_export_are_secret_free(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
