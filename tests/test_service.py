@@ -90,8 +90,16 @@ class FakeClient:
     def discover_folders(self, url: str | None) -> list[object]:
         return []
 
-    def discover_sessions(self, selector: str) -> list[PanoptoSession]:
+    def discover_sessions(
+        self, selector: str, *, hydrate: bool = False
+    ) -> list[PanoptoSession]:
         self.backend.discovery_calls.append(selector)
+        if hydrate:
+            return [
+                self.backend.sessions_by_id[s.session_id]
+                for s in self.backend.sessions_by_folder.get(selector, ())
+                if s.session_id in self.backend.sessions_by_id
+            ]
         return list(self.backend.sessions_by_folder.get(selector, ()))
 
     def inspect(self, target: str) -> PanoptoSession:

@@ -267,7 +267,7 @@ class AppService:
             client = self._client(cookie_file)
             for source in selected_sources:
                 self.progress(f"Discovering {source.alias}")
-                for remote in client.discover_sessions(source.folder_id):
+                for remote in client.discover_sessions(source.folder_id, hydrate=True):
                     stored = self._persist_remote_session(remote, source)
                     if not _selected_by_history(stored, source, backfill, cutoff, last):
                         continue

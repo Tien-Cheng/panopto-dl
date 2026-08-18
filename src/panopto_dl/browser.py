@@ -60,6 +60,10 @@ class BrowserSession:
     """
 
     _LOGIN_POLL_SECONDS = 1.0
+    # Fixed lifetime applied to session-scoped auth cookies so Chromium writes
+    # them to the persistent profile store.  The SSO provider may revoke the
+    # underlying session earlier; this only governs browser-side persistence.
+    _SESSION_COOKIE_LIFETIME_SECONDS = 30 * 24 * 60 * 60
 
     def __init__(
         self,
@@ -96,11 +100,61 @@ class BrowserSession:
             deadline = time.monotonic() + timeout_seconds
             while time.monotonic() < deadline:
                 if self._probe_authenticated(context):
+                    self._persist_session_cookies(context)
                     return self._result(True, "AUTHENTICATED")
                 if self._context_closed(context):
                     break
                 time.sleep(min(self._LOGIN_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
         return self._result(False, "AUTH_REQUIRED")
+
+    def _persist_session_cookies(self, context: Any) -> None:
+        """Re-issue session-scoped auth cookies with a fixed lifetime.
+
+        SSO providers (notably NUS via ADFS) issue the Panopto auth cookie
+        (``.ASPXAUTH``) as a session cookie with no expiry.  Chromium only
+        writes cookies that carry an ``expires`` to the on-disk persistent
+        store; session cookies live in memory and vanish when the browser
+        closes, which breaks the design assumption that a later headless
+        check or download can reuse the logged-in profile.
+
+        Once the probe has confirmed an authenticated session, this reads the
+        live cookies scoped to the site and re-adds any that are missing an
+        expiry (or carry a past expiry) with a generous fixed lifetime, so
+        they are flushed to disk and survive future headless opens.
+        """
+
+        lifetime = self._SESSION_COOKIE_LIFETIME_SECONDS
+        try:
+            cookies = context.cookies([self.base_url])
+        except Exception:
+            return
+        refreshed: list[dict[str, object]] = []
+        for cookie in cookies:
+            expires = cookie.get("expires") or 0
+            # A session cookie is reported as exp -1 (or 0).  Re-issue those
+            # with a fixed future expiry; leave genuinely persistent cookies
+            # alone so their original lifetime is preserved.
+            if expires is not None and expires > 0:
+                continue
+            refreshed.append(
+                {
+                    "name": cookie["name"],
+                    "value": cookie["value"],
+                    "domain": cookie["domain"],
+                    "path": cookie["path"],
+                    "httpOnly": bool(cookie.get("httpOnly")),
+                    "secure": bool(cookie.get("secure")),
+                    "sameSite": cookie.get("sameSite"),
+                    "expires": time.time() + lifetime,
+                }
+            )
+        if not refreshed:
+            return
+        try:
+            context.add_cookies(refreshed)
+        except Exception:
+            return
+
 
     def status(self) -> AuthResult:
         """Verify the persisted session headlessly using Panopto folder data."""
