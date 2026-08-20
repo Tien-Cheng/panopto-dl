@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from panopto_dl import __version__
 from panopto_dl.errors import ExitCode
 
 
@@ -90,7 +91,7 @@ def test_version_success_is_one_machine_document(tmp_path: Path) -> None:
     assert result.returncode == ExitCode.SUCCESS
     assert result.payload["command"] == "version"
     assert result.payload["status"] == "success"
-    assert result.payload["result"] == {"version": "0.1.0"}
+    assert result.payload["result"] == {"version": __version__}
     assert result.payload["error"] is None
 
 
